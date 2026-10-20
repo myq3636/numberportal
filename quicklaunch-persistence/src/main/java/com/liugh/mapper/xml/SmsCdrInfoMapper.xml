@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liugh.mapper.SmsCdrInfoMapper">
+
+    <!-- 通用查询映射结果 -->
+    <resultMap id="BaseResultMap" type="com.liugh.entity.SmsCdrInfo">
+        <result column="id" property="id" />
+        
+        <result column="ssid" property="ssid" />
+       
+        <result column="status" property="status" />
+        <result column="content" property="content" />
+        <result column="msisdn" property="msisdn" />
+        <result column="msg_id" property="msgId" />
+        <result column="province" property="province" />
+        <result column="city" property="city" />
+        <result column="mobileType" property="mobile_type" />
+        <result column="timemark" property="timemark" />
+        <result column="create_time" property="createTime" />
+        <result column="retry_count" property="retryCount" />
+        <result column="sender" property="sender" />
+        <result column="rssid" property="rssid" />
+        <result column="receive_time" property="receiveTime" />
+        <result column="expire_time" property="expireTime" />
+    </resultMap>
+
+    
+    <select id="selectPageByConditionCdr"  resultMap="BaseResultMap">
+        select c.* from sms_cdr_info c 
+        where 1=1
+        <if test="number != null and number != '' ">
+           and (c.msisdn=#{number})
+        </if>        
+        <if test="effectiveStartTime != null and effectiveStartTime != '' and effectiveEndTime != null and effectiveEndTime != '' ">
+            and UNIX_TIMESTAMP(c.timemark)*1000 between #{effectiveStartTime,jdbcType=BIGINT} and #{effectiveEndTime,jdbcType=BIGINT}
+        </if> 
+        
+        <if test="ssid != 0 ">
+            and (c.ssid=#{ssid}) 
+        </if> 
+                    
+         ORDER BY c.timemark Desc        
+        
+    </select>    
+    
+     <select id="existTable" parameterType="String" resultType="Integer">  
+        select count(*)  
+        from information_schema.TABLES  
+        where LCASE(table_name)=#{tableName} 
+    </select>
+    
+    <update id="dropTable">  
+        DROP TABLE IF EXISTS ${tableName} 
+    </update>  
+    
+    <update id="createNewTable" parameterType="String">  
+        CREATE TABLE ${tableName}  (
+		  `id` int(11) NOT NULL AUTO_INCREMENT,
+		  `ssid` int(11) NOT NULL DEFAULT '0',
+		  `status` int(11) NOT NULL DEFAULT '0',
+		  `content` varchar(10240) NOT NULL DEFAULT '',
+		  `msisdn` varchar(255) DEFAULT '',
+		  `msg_id` varchar(50) DEFAULT '',
+		  `sender` varchar(50) DEFAULT '',
+		  `timemark` varchar(50) DEFAULT NULL,
+		  `city` varchar(50) DEFAULT '',
+		  `mobile_type` varchar(50) DEFAULT '',
+		  `receive_time` varchar(50) DEFAULT '',
+		  `create_time` varchar(50) DEFAULT NULL,
+		  `retry_count` int(11) NOT NULL DEFAULT '0',
+		  `rssid` int(11) NOT NULL DEFAULT '0',
+		  `province` varchar(50) DEFAULT NULL,
+		  `expire_time` varchar(50) DEFAULT NULL,
+		  KEY `Index 1` (`id`),
+		  KEY `Index 3` (`ssid`,`create_time`,`status`),
+		  KEY `Index 2` (`msisdn`),
+		  KEY `cdr_query` (`status`,`create_time`,`ssid`)
+		) ENGINE=InnoDB AUTO_INCREMENT=27447 DEFAULT CHARSET=utf8;
+    </update> 
+    
+    <insert id="insertCdr" >
+        insert into ${tableName}
+        (`ssid`, `status`, `content`, `msisdn`, 
+        `msg_id`, `sender`, `timemark`, `city`, 
+        `mobile_type`, `receive_time`, `create_time`, `expire_time`, `rssid`, `retry_count`)
+        values
+        (#{cdr.ssid},
+			#{cdr.status},
+			#{cdr.content},
+			#{cdr.msisdn},
+			#{cdr.msgId},
+			#{cdr.sender},
+			#{cdr.timemark},
+			#{cdr.city},
+			#{cdr.mobileType},
+			#{cdr.receiveTime},
+			#{cdr.createTime},
+			#{cdr.expireTime},
+			#{cdr.rssid},
+			#{cdr.retryCount}
+			)
+    </insert> 
+    
+    
+
+</mapper>

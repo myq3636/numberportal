@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.liugh.mapper.AdminInfoMapper">
+
+    <!-- 通用查询映射结果 -->
+    <resultMap id="BaseResultMap" type="com.liugh.entity.AdminInfo">
+        <id column="id" property="id" />
+        <result column="username" property="username" />
+        <result column="password" property="password" />
+        <result column="nickname" property="nickname" />
+        <result column="imgBase64" property="imgBase64" />
+        <result column="descrption" property="descrption" />
+        <result column="phone_number" property="phoneNumber" />
+        <result column="status" property="status" />
+        <result column="role" property="role" />
+        <result column="source" property="source" />
+        <result column="url" property="url" />
+        <result column="token" property="token" />
+        <result column="ssid" property="ssid" />
+        <result column="appId" property="app_id" />
+        <result column="appSecurity" property="app_security" />
+        <result column="numberCheckUrl" property="number_check_url" />
+        <result column="expire_time" property="expireTime" />
+        <result column="interval" property="interval" />
+        <result column="ports" property="ports" />
+    </resultMap>
+    
+    <resultMap id="selectAdminListResultMap" type="com.liugh.entity.AdminInfo">
+        <id column="id" property="id" />
+        <result column="username" property="username" />
+        <result column="password" property="password" />
+        <result column="nickname" property="nickname" />
+        <result column="imgBase64" property="imgBase64" />
+        <result column="descrption" property="descrption" />
+        <result column="phone_number" property="phoneNumber" />
+        <result column="status" property="status" />
+        <result column="credit" property="credit" />
+        <result column="ssid" property="ssid" />
+        <result column="source" property="source" />
+        <result column="appId" property="app_id" />
+        <result column="appSecurity" property="app_security" />
+        <result column="numberCheckUrl" property="number_check_url" />
+        <result column="expire_time" property="expireTime" />
+         <result column="interval" property="interval" />
+         <result column="ports" property="ports" />
+    </resultMap>
+
+    <!-- 通用查询结果列 -->
+    <!-- <sql id="Base_Column_List">
+        id, username, password, nickname, imgBase64, descrption, phone_number AS phoneNumber, status, role, source
+    </sql> -->
+
+    <select id="selectAdminList"  resultMap="selectAdminListResultMap">
+        select * from admin_info where role=0
+    </select>
+</mapper>

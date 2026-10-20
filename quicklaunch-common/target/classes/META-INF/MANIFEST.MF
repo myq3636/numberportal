@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Built-By: dream
+Build-Jdk: 17.0.7
+Implementation-Title: quicklaunch-common
+Implementation-Version: 1.0-SNAPSHOT
+Implementation-Vendor-Id: com.quicklaunch
+Implementation-Vendor: Pivotal Software, Inc.
+Implementation-URL: http://projects.spring.io/spring-boot/quicklaunch-pa
+ rent/quicklaunch-common/
+Created-By: Maven Integration for Eclipse
+

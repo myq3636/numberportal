@@ -1,0 +1,39 @@
+package com.liugh.service;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * @author liugh
+ * @since on 2018/5/11.
+ */
+public interface IRedisService {
+    boolean set(String key, String value) throws Exception;
+
+    String get(String key) throws Exception;
+
+    boolean expire(String key, long expire) throws Exception;
+
+    <T> boolean setList(String key, List<T> list) throws Exception;
+
+    <T> List<T> getList(String key, Class<T> clz) throws Exception;
+
+    long lpush(String key, Object obj) throws Exception;
+
+    long rpush(String key, Object obj) throws Exception;
+
+    void hmset(String key, Object obj) throws Exception;
+
+    String hget(String key, String hash) throws Exception;
+
+    public List<String> getList(String key, long start, long end);
+    public long setList(String key, String value);
+    public void setString(String key, String value);
+
+    void del(String key) throws Exception;
+
+    <T> List<T>  hmGetAll(String key, Class<T> clz) throws Exception;
+    public List<Map<String,Object>>  hmGetAll(String key) throws Exception;
+
+    String lpop(String key) throws Exception;
+}

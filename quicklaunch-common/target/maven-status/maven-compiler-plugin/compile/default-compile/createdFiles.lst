@@ -1,0 +1,10 @@
+com\liugh\rcs\model\RcsContent.class
+com\liugh\rcs\model\RcsMedia.class
+com\liugh\util\SmsSendUtil$1.class
+com\liugh\rcs\model\SuggestionType.class
+com\liugh\rcs\model\RcsContentValidator$1.class
+com\liugh\rcs\model\ContentType.class
+com\liugh\rcs\model\RcsTemplateParameter.class
+com\liugh\rcs\model\RcsCard.class
+com\liugh\rcs\model\RcsContentValidator.class
+com\liugh\rcs\model\RcsSuggestion.class
