@@ -1,8 +1,10 @@
 package com.liugh.rcs.channel;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -26,5 +28,10 @@ public class RcsChannelAdapterRegistry {
 
     public RcsChannelAdapter get(String channelCode) {
         return channelCode == null ? null : adapters.get(channelCode);
+    }
+
+    /** 已注册的全部通道编码。 */
+    public Set<String> channelCodes() {
+        return Collections.unmodifiableSet(adapters.keySet());
     }
 }
