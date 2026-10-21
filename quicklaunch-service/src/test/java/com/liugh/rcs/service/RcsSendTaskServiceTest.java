@@ -1,14 +1,19 @@
 package com.liugh.rcs.service;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
 import org.junit.Before;
@@ -58,7 +63,7 @@ public class RcsSendTaskServiceTest {
         supplier.setChannelCode("INFOBIP");
         supplier.setUrl("https://infobip.example.com");
         supplier.setAppId("api-key");
-        GlobalMap.admin.put("901", supplier);
+        GlobalMap.rcsadmin.put("901", supplier);
 
         task = new RcsSendTask();
         task.setMsgId("msg-1");
@@ -90,7 +95,8 @@ public class RcsSendTaskServiceTest {
 
     @After
     public void tearDown() {
-        GlobalMap.admin.remove("901");
+        service.shutdown();
+        GlobalMap.rcsadmin.remove("901");
     }
 
     @Test
@@ -124,9 +130,74 @@ public class RcsSendTaskServiceTest {
                 "submit returned null");
     }
 
+    @Test
+    public void deliverPendingSendsClaimedTaskOnChannelWorker() {
+        adapter.channelMsgId = "provider-1";
+        service.setEnabled(true);
+        when(adapterRegistry.channelCodes())
+                .thenReturn(Collections.singleton("INFOBIP"));
+        when(taskMapper.selectList(any()))
+                .thenReturn(Collections.singletonList(task));
+        when(persistenceService.claim(task)).thenReturn(true);
+
+        service.deliverPending();
+        service.shutdown();
+
+        assertTrue(adapter.threadName.startsWith("rcs-send-infobip-"));
+        verify(persistenceService).markSubmitted(cdr, "provider-1");
+        verify(persistenceService).markTaskSucceeded(task);
+    }
+
+    @Test
+    public void deliverPendingSkipsScanWhenChannelHasNoFreeCapacity()
+            throws Exception {
+        adapter.channelMsgId = "provider-1";
+        adapter.started = new CountDownLatch(1);
+        adapter.release = new CountDownLatch(1);
+        service.setEnabled(true);
+        service.setThreadsPerChannel(1);
+        service.setQueuePerChannel(0);
+        when(adapterRegistry.channelCodes())
+                .thenReturn(Collections.singleton("INFOBIP"));
+        when(taskMapper.selectList(any()))
+                .thenReturn(Collections.singletonList(task));
+        when(persistenceService.claim(task)).thenReturn(true);
+
+        service.deliverPending();
+        assertTrue(adapter.started.await(5, TimeUnit.SECONDS));
+        service.deliverPending();
+        adapter.release.countDown();
+        service.shutdown();
+
+        verify(taskMapper, times(1)).selectList(any());
+        verify(persistenceService, times(1)).claim(task);
+    }
+
+    @Test
+    public void failedClaimReleasesCapacityWithoutSending() {
+        service.setEnabled(true);
+        service.setThreadsPerChannel(1);
+        service.setQueuePerChannel(0);
+        when(adapterRegistry.channelCodes())
+                .thenReturn(Collections.singleton("INFOBIP"));
+        when(taskMapper.selectList(any()))
+                .thenReturn(Collections.singletonList(task));
+        when(persistenceService.claim(task)).thenReturn(false);
+
+        service.deliverPending();
+        service.deliverPending();
+        service.shutdown();
+
+        verify(taskMapper, times(2)).selectList(any());
+        verify(persistenceService, never()).markTaskSucceeded(task);
+    }
+
     private static final class CapturingAdapter implements RcsChannelAdapter {
         private String channelMsgId;
         private RcsSendCtx ctx;
+        private volatile String threadName;
+        private CountDownLatch started;
+        private CountDownLatch release;
 
         @Override
         public String channelCode() {
@@ -140,8 +211,14 @@ public class RcsSendTaskServiceTest {
         }
 
         @Override
-        public String send(RcsContent content, RcsSendCtx ctx) {
+        public String send(RcsContent content, RcsSendCtx ctx)
+                throws Exception {
             this.ctx = ctx;
+            this.threadName = Thread.currentThread().getName();
+            if (started != null) {
+                started.countDown();
+                release.await(5, TimeUnit.SECONDS);
+            }
             return channelMsgId;
         }
 

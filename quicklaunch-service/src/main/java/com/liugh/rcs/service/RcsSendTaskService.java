@@ -3,6 +3,17 @@ package com.liugh.rcs.service;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.annotation.PreDestroy;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,8 +52,17 @@ public class RcsSendTaskService {
     private final RcsFileService fileService;
     private final RcsCallbackService callbackService;
 
+    private static final List<String> PENDING_STATUSES =
+            Arrays.asList("QUEUED", "RETRY");
+    private static final long SHUTDOWN_WAIT_SECONDS = 30L;
+
     private boolean enabled;
     private String projectUrl;
+    private int threadsPerChannel = 8;
+    private int queuePerChannel = 100;
+    private volatile boolean stopping;
+    private final ConcurrentMap<String, ChannelWorker> workers =
+            new ConcurrentHashMap<String, ChannelWorker>();
 
     @Autowired
     public RcsSendTaskService(RcsSendTaskMapper taskMapper,
@@ -69,28 +89,93 @@ public class RcsSendTaskService {
         this.projectUrl = projectUrl;
     }
 
+    @Value("${rcs.send-task.threads-per-channel:8}")
+    public void setThreadsPerChannel(int threadsPerChannel) {
+        this.threadsPerChannel = Math.max(1, threadsPerChannel);
+    }
+
+    @Value("${rcs.send-task.queue-per-channel:100}")
+    public void setQueuePerChannel(int queuePerChannel) {
+        this.queuePerChannel = Math.max(0, queuePerChannel);
+    }
+
+    /**
+     * 按通道分别拉取已到期任务，抢占成功后交给该通道的线程池并发发送。
+     * 每个通道的在途任务上限 = 线程数 + 队列长度，只拉取空闲名额数量的任务，
+     * 某个通道积压或上游变慢不会挤占其他通道。
+     */
     @Scheduled(fixedDelayString = "${rcs.send-task.scan-ms:2000}")
     public void deliverPending() {
-        if (!enabled) {
+        if (!enabled || stopping) {
+            return;
+        }
+        Date now = new Date();
+        for (String channelCode : adapterRegistry.channelCodes()) {
+            try {
+                dispatchChannel(channelCode, now);
+            } catch (RuntimeException e) {
+                log.error("rcs send task dispatch failed, channel:{}",
+                        channelCode, e);
+            }
+        }
+    }
+
+    private void dispatchChannel(String channelCode, Date now) {
+        ChannelWorker worker = worker(channelCode);
+        int free = worker.available();
+        if (free <= 0) {
             return;
         }
         List<RcsSendTask> tasks = taskMapper.selectList(
                 new EntityWrapper<RcsSendTask>()
-                        .in("task_status", Arrays.asList("QUEUED", "RETRY"))
+                        .eq("channel_code", channelCode)
+                        .in("task_status", PENDING_STATUSES)
+                        .le("next_attempt_time", now)
                         .orderBy("next_attempt_time", true)
-                        .orderBy("create_time", true)
-                        .last("LIMIT 100"));
-        if (tasks == null || tasks.isEmpty()) {
+                        .last("LIMIT " + free));
+        if (tasks == null) {
             return;
         }
-        Date now = new Date();
         for (RcsSendTask task : tasks) {
-            if (task.getNextAttemptTime() != null
-                    && task.getNextAttemptTime().after(now)) {
-                continue;
+            if (stopping || !worker.tryAcquire()) {
+                return;
             }
-            if (persistenceService.claim(task)) {
-                process(task);
+            boolean dispatched = false;
+            try {
+                if (persistenceService.claim(task)) {
+                    worker.execute(task);
+                    dispatched = true;
+                }
+            } finally {
+                if (!dispatched) {
+                    worker.release();
+                }
+            }
+        }
+    }
+
+    private ChannelWorker worker(String channelCode) {
+        return workers.computeIfAbsent(channelCode,
+                code -> new ChannelWorker(code, threadsPerChannel,
+                        queuePerChannel));
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        stopping = true;
+        for (ChannelWorker worker : workers.values()) {
+            worker.executor.shutdown();
+        }
+        for (Map.Entry<String, ChannelWorker> entry : workers.entrySet()) {
+            try {
+                if (!entry.getValue().executor.awaitTermination(
+                        SHUTDOWN_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                    log.warn("rcs send workers not drained on shutdown, channel:{}",
+                            entry.getKey());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
     }
@@ -243,5 +328,58 @@ public class RcsSendTaskService {
 
     private static <T> T first(List<T> values) {
         return values == null || values.isEmpty() ? null : values.get(0);
+    }
+
+    /** 单个通道的发送线程池；permits 限制该通道在途（执行中 + 排队）任务数。 */
+    private final class ChannelWorker {
+
+        private final Semaphore permits;
+        private final ThreadPoolExecutor executor;
+
+        ChannelWorker(final String channelCode, int threads, int queue) {
+            this.permits = new Semaphore(threads + queue);
+            final AtomicInteger seq = new AtomicInteger();
+            this.executor = new ThreadPoolExecutor(threads, threads,
+                    60L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(),
+                    new ThreadFactory() {
+                        @Override
+                        public Thread newThread(Runnable r) {
+                            Thread t = new Thread(r, "rcs-send-"
+                                    + channelCode.toLowerCase() + "-"
+                                    + seq.incrementAndGet());
+                            t.setDaemon(true);
+                            return t;
+                        }
+                    });
+            this.executor.allowCoreThreadTimeOut(true);
+        }
+
+        int available() {
+            return permits.availablePermits();
+        }
+
+        boolean tryAcquire() {
+            return permits.tryAcquire();
+        }
+
+        void release() {
+            permits.release();
+        }
+
+        void execute(final RcsSendTask task) {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        process(task);
+                    } catch (Throwable e) {
+                        log.error("rcs async send worker failed, msgId:{}",
+                                task.getMsgId(), e);
+                    } finally {
+                        permits.release();
+                    }
+                }
+            });
+        }
     }
 }
